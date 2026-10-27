@@ -1,0 +1,58 @@
+{
+  "idle": {
+    "frameW": 74,
+    "frameH": 65,
+    "frames": 10,
+    "fps": 6,
+    "anchorX": 34,
+    "anchorY": 65
+  },
+  "walk": {
+    "frameW": 74,
+    "frameH": 65,
+    "frames": 12,
+    "fps": 12,
+    "anchorX": 34,
+    "anchorY": 65
+  },
+  "run": {
+    "frameW": 74,
+    "frameH": 65,
+    "frames": 15,
+    "fps": 24,
+    "anchorX": 34,
+    "anchorY": 65
+  },
+  "fall": {
+    "frameW": 74,
+    "frameH": 65,
+    "frames": 13,
+    "fps": 12,
+    "anchorX": 34,
+    "anchorY": 65
+  },
+  "attack": {
+    "frameW": 74,
+    "frameH": 65,
+    "frames": 25,
+    "fps": 24,
+    "anchorX": 34,
+    "anchorY": 65
+  },
+  "hurt": {
+    "frameW": 74,
+    "frameH": 65,
+    "frames": 13,
+    "fps": 12,
+    "anchorX": 34,
+    "anchorY": 65
+  },
+  "death": {
+    "frameW": 74,
+    "frameH": 65,
+    "frames": 13,
+    "fps": 12,
+    "anchorX": 34,
+    "anchorY": 65
+  }
+}
