@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "action": "death",
+  "direction": "e",
+  "mode": "video",
+  "spritesheet": "spritesheet.png",
+  "previewGif": "preview.gif",
+  "frameWidth": 256,
+  "frameHeight": 256,
+  "columns": 5,
+  "rows": 3,
+  "frames": 13,
+  "fps": 12,
+  "anchor": {
+    "x": 128,
+    "y": 255
+  },
+  "sourceRun": "death-e",
+  "publicAssetReady": false
+}

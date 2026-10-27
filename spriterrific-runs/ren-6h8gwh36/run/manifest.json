@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "action": "run",
+  "direction": "e",
+  "mode": "video",
+  "spritesheet": "spritesheet.png",
+  "previewGif": "preview.gif",
+  "frameWidth": 256,
+  "frameHeight": 256,
+  "columns": 5,
+  "rows": 3,
+  "frames": 15,
+  "fps": 24,
+  "anchor": {
+    "x": 128,
+    "y": 255
+  },
+  "sourceRun": "run-e",
+  "publicAssetReady": false
+}
