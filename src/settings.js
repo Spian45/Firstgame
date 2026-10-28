@@ -1,6 +1,6 @@
 // Player settings from the SETTINGS menu, remembered between visits. Display mode is stored separately
 // (ren.display) because it predates this file.
-const DEFAULTS = { music: 7, sfx: 7, shake: true };
+const DEFAULTS = { music: 7, sfx: 7, shake: true, touchSize: 'medium', autoFullscreen: true };
 
 export function loadSettings() {
     try {

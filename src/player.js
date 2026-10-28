@@ -391,7 +391,6 @@ export class Player {
         fx.ring(this.x, this.y - 24, '#9ee7ff', 30, 0.35);
         fx.ring(this.x, this.y - 24, '#ffffff', 18, 0.25);
         fx.burst(this.x, this.y - 24, 18, ['#9ee7ff', '#ffffff', '#38bdf8'], { speed: 150, gravity: 0, life: 0.4 });
-        fx.number(this.x, this.y - 64, 'PERFECT!', '#9ee7ff', true);
     }
 
     startSlam(fx) {

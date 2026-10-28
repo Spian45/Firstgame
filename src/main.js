@@ -29,9 +29,9 @@ class Game {
         this.ctx = this.canvas.getContext('2d');
         this.ctx.imageSmoothingEnabled = false;
         this.input = new InputManager(this.canvas);
-        this.touch = new TouchControls(this.input, this.canvas);
         this.difficulty = loadDifficulty();
         this.settings = loadSettings();
+        this.touch = new TouchControls(this.input, this.canvas, () => this.settings);
         audio.setLevels(this.settings.music, this.settings.sfx);
         this.audioStarted = false;
         this.paused = false;
@@ -45,6 +45,7 @@ class Game {
 
         this.fitToWindow();
         window.addEventListener('resize', () => this.fitToWindow());
+        document.addEventListener('fullscreenchange', () => this.fitToWindow());
 
         const startAudio = () => {
             if (this.audioStarted) return;
@@ -133,6 +134,8 @@ class Game {
         audio.resume();
         this.reset();
         if (this.audioStarted) audio.stopBGM();
+        // on a phone, go fullscreen (asked for on this tap's lift: browsers only allow it inside a touch)
+        if (this.touch.enabled && this.settings.autoFullscreen) this.touch.wantFullscreen = true;
     }
 
     // Pause menu: W/S or hover to pick, Enter / click / tap to choose; R and Q still work directly
@@ -214,6 +217,7 @@ class Game {
     // Settings menu changed something: apply the volumes now and remember everything
     applySettings() {
         audio.setLevels(this.settings.music, this.settings.sfx);
+        this.touch.applySize();
         saveSettings(this.settings);
     }
 
@@ -347,6 +351,8 @@ class Game {
         this.resolveSlam();
         if (this.player.perfectDodged) {
             this.player.perfectDodged = false;
+            // on a phone, a double buzz you can feel instead of reading a "PERFECT" popup
+            if (this.touch.enabled && navigator.vibrate) navigator.vibrate([25, 40, 45]);
             this.slowmo = 0.45;
             this.flashScreen('#9ee7ff', 0.25);
             this.shake(2, 0.1);

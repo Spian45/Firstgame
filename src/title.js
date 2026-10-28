@@ -47,6 +47,8 @@ const CHANGELOG = [
             ['NEW', 'DEBUG MODE SWITCH ON THE MAIN MENU'],
             ['CHANGED', 'F3 HIDES THE DEBUG PANEL - CHEATS STAY ON'],
             ['NEW', 'SETTINGS IN THE PAUSE MENU'],
+            ['CHANGED', 'BIGGER PHONE CONTROLS WITH A FLOATING JOYSTICK'],
+            ['NEW', 'PHONES GO FULLSCREEN WHEN A FIGHT STARTS'],
             ['FIXED', 'NO STRAY SPIKES HANGING UNDER PLATFORMS'],
             ['CHANGED', 'BOSS MUSIC STARTS WHEN THE BOSS ROARS'],
             ['CHANGED', 'PAUSE MENU REDESIGN WITH STATS AND TIPS'],
@@ -86,7 +88,7 @@ const CREDIT_ROLES = [
 ];
 
 // Settings page geometry (shared by drawing and mouse/touch hit tests)
-const SET = { w: 360, h: 220 };
+const SET = { w: 360, h: 266 };
 SET.x = (VIEW_W - SET.w) / 2;
 SET.y = (VIEW_H - SET.h) / 2;
 SET.y0 = SET.y + 48;
@@ -207,6 +209,18 @@ export class TitleScreen {
             {
                 label: 'SCREEN SHAKE', value: s.shake ? 'ON' : 'OFF', change: () => { s.shake = !s.shake; },
                 desc: 'SHAKE THE SCREEN ON BIG HITS'
+            },
+            {
+                label: 'TOUCH BUTTONS', value: (s.touchSize || 'medium').toUpperCase(),
+                change: () => {
+                    const order = ['small', 'medium', 'large'];
+                    s.touchSize = order[(order.indexOf(s.touchSize) + 1) % order.length];
+                },
+                desc: 'SIZE OF THE ON-SCREEN BUTTONS ON PHONES'
+            },
+            {
+                label: 'PHONE FULLSCREEN', value: s.autoFullscreen ? 'ON' : 'OFF', change: () => { s.autoFullscreen = !s.autoFullscreen; },
+                desc: 'GO FULLSCREEN WHEN A FIGHT STARTS'
             },
             {
                 label: 'KEYBINDS', value: 'CHANGE >', change: () => { this.page = 'keybinds'; this.kbSel = 0; this.kbWaiting = false; },
