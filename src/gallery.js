@@ -1,4 +1,4 @@
-// Gallery (title menu): browse every animation, play the soundtrack, and test the sound effects.
+﻿// Gallery (title menu): browse every animation, play the soundtrack, and test the sound effects.
 import { drawText } from './font.js';
 import { VIEW_W, VIEW_H } from './arena.js';
 import { CHARACTER } from './character.js';
@@ -60,6 +60,7 @@ export class Gallery {
         this.playing = -1;
         this.musicChanged = false;
         this.flash = 0;
+        this.press = 'ENTER';
     }
 
     open() {
@@ -101,10 +102,37 @@ export class Gallery {
         if (input.menuLeft) this.tab = (this.tab + TABS.length - 1) % TABS.length;
         if (input.menuRight) this.tab = (this.tab + 1) % TABS.length;
         const n = this.items(game).length;
-        if (input.menuUp) { this.sel[this.tab] = (this.sel[this.tab] + n - 1) % n; this.time = 0; }
-        if (input.menuDown) { this.sel[this.tab] = (this.sel[this.tab] + 1) % n; this.time = 0; }
+        if (input.menuUp || input.wheel < 0) { this.sel[this.tab] = (this.sel[this.tab] + n - 1) % n; this.time = 0; }
+        if (input.menuDown || input.wheel > 0) { this.sel[this.tab] = (this.sel[this.tab] + 1) % n; this.time = 0; }
         if (input.confirm) this.activate(game);
+        if (input.tap) this.handleTap(input.tap, game);
         return null;
+    }
+
+    // Touch: tap a tab, tap a row to select it (tap it again to play), or tap the preview to play
+    handleTap(tap, game) {
+        const tabW = 120;
+        const x0 = VIEW_W / 2 - (tabW * TABS.length) / 2;
+        if (tap.y >= 34 && tap.y <= 58) {
+            const i = Math.floor((tap.x - x0) / tabW);
+            if (i >= 0 && i < TABS.length) this.tab = i;
+            return;
+        }
+        if (tap.x >= 250 && tap.y >= 66 && tap.y <= 304) {
+            this.activate(game);
+            return;
+        }
+        const items = this.items(game);
+        const sel = this.sel[this.tab];
+        const first = Math.max(0, Math.min(sel - 7, items.length - 15));
+        const i = first + Math.floor((tap.y - 66) / 16);
+        if (tap.x < 240 && tap.y >= 66 && i < Math.min(items.length, first + 15)) {
+            if (i === sel) this.activate(game);
+            else {
+                this.sel[this.tab] = i;
+                this.time = 0;
+            }
+        }
     }
 
     activate(game) {
@@ -182,7 +210,11 @@ export class Gallery {
         else if (this.tab === 1) this.renderTrack(ctx, TRACKS[sel], px, py, pw, ph);
         else this.renderSound(ctx, SOUNDS[sel][0], px, py, pw, ph);
 
-        drawText(ctx, 'A/D TAB   W/S SELECT   ENTER ' + (this.tab === 0 ? 'REPLAY' : 'PLAY') + '   ESC BACK', VIEW_W / 2, VIEW_H - 22, { color: DIM, align: 'center' });
+        this.press = game.touch.enabled ? 'TAP' : 'ENTER'; // word used in the preview hints
+        const hint = game.touch.enabled
+            ? 'TAP A TAB OR ITEM   TAP THE PREVIEW TO ' + (this.tab === 0 ? 'REPLAY' : 'PLAY')
+            : 'A/D TAB   W/S SELECT   ENTER OR CLICK ' + (this.tab === 0 ? 'REPLAY' : 'PLAY') + '   ESC BACK';
+        drawText(ctx, hint, VIEW_W / 2, VIEW_H - 22, { color: DIM, align: 'center' });
     }
 
     renderAnimation(ctx, game, item, px, py, pw, ph) {
@@ -226,7 +258,7 @@ export class Gallery {
             ctx.fillStyle = i % 2 ? '#c050ff' : PINK;
             ctx.fillRect(cx - bars * 5 + i * 10, py + 170 - hgt, 6, hgt);
         }
-        const hint = track.oneShot ? 'ENTER TO PLAY THE JINGLE' : playing ? 'NOW PLAYING - ENTER TO STOP' : 'ENTER TO PLAY';
+        const hint = (track.oneShot ? 'ENTER TO PLAY THE JINGLE' : playing ? 'NOW PLAYING - ENTER TO STOP' : 'ENTER TO PLAY').replace('ENTER', this.press);
         drawText(ctx, hint, cx, py + 196, { color: playing ? PINK : DIM, align: 'center' });
     }
 
@@ -242,6 +274,6 @@ export class Gallery {
             ctx.fillRect(cx + 8, py + 122, 2, 8);
             ctx.fillRect(cx + 13, py + 118, 2, 16);
         }
-        drawText(ctx, 'ENTER TO PLAY', cx, py + 170, { color: DIM, align: 'center' });
+        drawText(ctx, this.press + ' TO PLAY', cx, py + 170, { color: DIM, align: 'center' });
     }
 }

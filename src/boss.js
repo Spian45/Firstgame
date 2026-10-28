@@ -1,9 +1,10 @@
-// LORD KAGETORA - the Blighted Kitsune Mask.
+﻿// LORD KAGETORA - the Blighted Kitsune Mask.
 // A floating corrupted fox mask with spectral claws and shadow tails. Two phases.
 import { audio } from './audio.js';
 import { PixelGrid } from './pixelart.js';
 import { ARENA_W, GROUND_Y } from './arena.js';
-import { BlightOrb, Shockwave, Pillar, overlap } from './projectiles.js';
+import { BlightOrb, Shockwave, Pillar, Meteor, overlap } from './projectiles.js';
+import { DIFFICULTIES } from './difficulty.js';
 
 const PALETTE = {
     K: '#1a0f1f', W: '#f2ebe0', w: '#c8bdb8', s: '#8d7f8f',
@@ -13,6 +14,21 @@ const PALETTE = {
 
 const MASK_W = 72;
 const MASK_H = 68;
+
+// Top of the first floor at or below y at column x: a one-way platform or the ground
+function surfaceBelow(arena, x, y) {
+    let best = GROUND_Y;
+    for (const s of arena.surfaces) {
+        if (x > s.x && x < s.x + s.w && s.y >= y && s.y < best) best = s.y;
+    }
+    return best;
+}
+
+// Intro: the ground cracks, claws burst out, the mask rises from the rift and roars, then the fight starts
+const INTRO_X = 500;
+const INTRO_TIME = 4.2;
+const INTRO_ROAR = 2.8;
+const DIRT = ['#c8b090', '#8a7058', '#5a4636'];
 
 function buildMaskGrid(cracked) {
     const g = new PixelGrid(MASK_W, MASK_H);
@@ -109,19 +125,22 @@ function buildSprites() {
 }
 
 export class Boss {
-    constructor(portalImg) {
+    constructor(portalImg, difficulty = 'normal') {
         this.sprites = buildSprites();
         this.portal = portalImg;
         this.name = 'LORD KAGETORA';
         this.title = 'THE BLIGHTED MASK';
 
-        this.maxHealth = 640;
+        const diff = DIFFICULTIES[difficulty];
+        this.pace = diff.pace;           // scales the rest between attacks
+        this.hardMoves = diff.hardMoves; // blight rain, spiral and claw clap join the rotation
+        this.maxHealth = Math.round(640 * diff.bossHp);
         this.health = this.maxHealth;
         this.displayHealth = this.maxHealth;
         this.phase = 1;
 
-        this.x = 500;
-        this.y = GROUND_Y + 40;
+        this.x = INTRO_X;
+        this.y = GROUND_Y + 70; // buried: rises out of the ground during the intro
         this.vx = 0;
         this.vy = 0;
         this.facing = -1;
@@ -145,7 +164,10 @@ export class Boss {
 
         this.dead = false;
         this.deathTimer = 0;
-        this.introAlpha = 0;
+        this.introAlpha = 1;
+        this.introT = 0;
+        this.introDone = {};
+        this.crackW = 0; // width of the rift in the ground (closes after the intro)
     }
 
     get targetable() {
@@ -162,8 +184,10 @@ export class Boss {
             return false;
         }
         const stunned = this.state === 'stunned';
-        const dmg = Math.round(amount * (stunned ? 1.5 : 1));
+        const oneHit = game.debug.enabled && game.debug.oneHit ? 50 : 1;
+        const dmg = Math.round(amount * (stunned ? 1.5 : 1) * oneHit);
         this.health = Math.max(0, this.health - dmg);
+        game.debug.log(`BOSS -${dmg}${stunned ? ' STUN' : ''}`, '#f87171');
         this.flash = 0.08;
         game.fx.number(this.x + (Math.random() - 0.5) * 30, this.y - 34, dmg, stunned ? '#fff27a' : '#ffffff', stunned || dmg >= 30);
         game.fx.burst(this.x, this.y, melee ? 6 : 3, ['#ff3df0', '#ffffff', '#6b2fa0'], { speed: 110, life: 0.35 });
@@ -210,14 +234,18 @@ export class Boss {
             case 'claws': this.updateClaws(dt, game); break;
             case 'sweep': this.updateSweep(dt, game); break;
             case 'pillars': this.updatePillars(dt, game); break;
+            case 'rain': this.updateRain(dt, game); break;
+            case 'spiral': this.updateSpiral(dt, game); break;
+            case 'clap': this.updateClap(dt, game); break;
             case 'phase': this.updatePhase(dt, game); break;
             case 'dying': this.updateDying(dt, game); break;
         }
 
         this.updateHands(dt, game);
+        if (this.state !== 'intro') this.crackW = Math.max(0, this.crackW - dt * 25);
 
         // Ambient blight embers
-        if (!this.dead && Math.random() < 0.5) {
+        if (!this.dead && this.y < GROUND_Y && Math.random() < 0.5) {
             game.fx.embers(this.x + (Math.random() - 0.5) * 50, this.y - 20, 1, this.phase === 2 ? ['#ff3df0', '#ff5a5a', '#1a0f1f'] : ['#8d2fd0', '#ff3df0', '#1a0f1f'], 4);
         }
 
@@ -236,13 +264,14 @@ export class Boss {
 
     // Damaging box of a claw mid-strike, or null
     handHitbox(h) {
-        return h.mode === 'strike' ? { x: h.x - 12, y: h.y - 12, w: 24, h: 24 } : null;
+        return h.mode === 'strike' || h.mode === 'clap' ? { x: h.x - 12, y: h.y - 12, w: 24, h: 24 } : null;
     }
 
     nextAttack(forced = null) {
         const pool = this.phase === 1
             ? ['orbs', 'slam', 'claws', 'sweep', 'orbs']
             : ['orbs', 'slam', 'claws', 'sweep', 'pillars', 'pillars'];
+        if (this.hardMoves) pool.push('rain', 'clap', ...(this.phase === 2 ? ['spiral', 'spiral'] : ['spiral']));
         let pick = forced;
         if (forced) {
             this.hands.forEach((h) => (h.mode = 'idle'));
@@ -256,7 +285,7 @@ export class Boss {
         this.sub = 'windup';
         this.charge = false;
         switch (pick) {
-            case 'orbs': this.timer = 0.55; this.volleys = this.phase === 1 ? 1 : 2; audio.bossCharge(0.55); break;
+            case 'orbs': this.timer = 0.55; this.volleys = (this.phase === 1 ? 1 : 2) + (this.hardMoves ? 1 : 0); audio.bossCharge(0.55); break;
             case 'slam': this.timer = 0.75; audio.bossRise(); break;
             case 'claws': this.clawStrikes = this.phase === 1 ? 2 : 4; this.timer = 0.2; break;
             case 'sweep':
@@ -265,6 +294,9 @@ export class Boss {
                 this.timer = 0.75;
                 break;
             case 'pillars': this.timer = 0.5; audio.bossCharge(0.5); break;
+            case 'rain': this.timer = 0.7; audio.bossRise(); break;
+            case 'spiral': this.timer = 0.6; this.spinAngle = 0; this.spinShot = 0; audio.bossCharge(0.6); break;
+            case 'clap': this.timer = 0.15; this.claps = this.phase === 1 ? 1 : 2; break;
         }
     }
 
@@ -272,20 +304,215 @@ export class Boss {
         this.state = 'hover';
         this.sub = '';
         this.charge = false;
-        this.timer = time !== undefined ? time : (this.phase === 1 ? 1.1 : 0.7);
+        this.timer = time !== undefined ? time : (this.phase === 1 ? 1.1 : 0.7) * this.pace;
+    }
+
+    // Hard: Blight Rain. Rises high, then meteors rain across the arena in two sweeps; one always
+    // targets Ren and the rest leave gaps to dodge through
+    updateRain(dt, game) {
+        this.timer -= dt;
+        if (this.sub === 'windup') {
+            this.moveTo(ARENA_W / 2, 60, 3, dt);
+            this.charge = true;
+            if (this.timer <= 0) {
+                this.charge = false;
+                const p = game.player;
+                const waves = this.phase === 1 ? 1 : 2;
+                for (let w = 0; w < waves; w++) {
+                    const gapX = 40 + Math.random() * (ARENA_W - 80); // a safe gap in each wave
+                    for (let x = 24 + Math.random() * 30; x < ARENA_W - 16; x += 58) {
+                        if (Math.abs(x - gapX) < 40) continue;
+                        game.enemyShots.push(new Meteor(x, w * 1.1 + Math.random() * 0.5));
+                    }
+                    game.enemyShots.push(new Meteor(p.x, w * 1.1 + 0.25));
+                }
+                audio.bossOrbs();
+                game.fx.ring(this.x, this.y, '#ff3df0', 40, 0.4);
+                this.sub = 'recover';
+                this.timer = this.phase === 1 ? 1.8 : 2.8;
+            }
+        } else {
+            this.moveTo(ARENA_W / 2, 70 + Math.sin(this.t * 2) * 6, 2, dt);
+            if (this.timer <= 0) this.toHover();
+        }
+    }
+
+    // Hard: Spiral. Hovers in the middle and spins out arms of orbs (3 arms, 4 in phase 2)
+    updateSpiral(dt, game) {
+        this.moveTo(ARENA_W / 2, 130, 3, dt);
+        this.timer -= dt;
+        if (this.sub === 'windup') {
+            this.charge = true;
+            if (Math.random() < 0.6) game.fx.burst(this.x + (Math.random() - 0.5) * 60, this.y + (Math.random() - 0.5) * 60, 1, ['#ff3df0'], { speed: 10, gravity: 0, life: 0.3 });
+            if (this.timer <= 0) { this.sub = 'spin'; this.timer = 2.2; this.charge = false; }
+        } else if (this.sub === 'spin') {
+            const arms = this.phase === 1 ? 3 : 4;
+            const dir = this.phase === 1 ? 1 : -1;
+            this.spinAngle += dt * 1.9 * dir;
+            this.spinShot -= dt;
+            if (this.spinShot <= 0) {
+                this.spinShot = 0.16;
+                for (let i = 0; i < arms; i++) {
+                    const a = this.spinAngle + (i / arms) * Math.PI * 2;
+                    game.enemyShots.push(new BlightOrb(this.x, this.y + 4, Math.cos(a) * 105, Math.sin(a) * 105, 8));
+                }
+                audio.playChime(880 + Math.random() * 120, 0.05);
+            }
+            if (this.timer <= 0) { this.sub = 'recover'; this.timer = 0.5; }
+        } else if (this.timer <= 0) {
+            this.toHover();
+        }
+    }
+
+    // Hard: Claw Clap. Both claws appear either side of Ren at body height, flash, then slam together;
+    // jump over them or dash through at the right moment
+    updateClap(dt, game) {
+        this.moveTo(this.x, 110 + Math.sin(this.t * 2) * 6, 2, dt);
+        const [l, r] = this.hands;
+        if (this.sub === 'windup') {
+            this.timer -= dt;
+            if (this.timer > 0) return;
+            if (this.claps <= 0) { this.toHover(); return; }
+            this.clapX = Math.max(60, Math.min(ARENA_W - 60, game.player.x));
+            this.clapY = Math.min(GROUND_Y, game.player.y) - 22; // at Ren's body height, on a platform too
+            for (const h of this.hands) { h.mode = 'clapAim'; h.vy = 0; }
+            this.sub = 'aim';
+            this.timer = this.phase === 1 ? 0.6 : 0.45;
+            audio.bossGrowl(0.4);
+        } else if (this.sub === 'aim') {
+            this.timer -= dt;
+            const k = Math.min(1, dt * 10);
+            for (const h of this.hands) {
+                h.x += (this.clapX + h.side * 100 - h.x) * k;
+                h.y += (this.clapY - h.y) * k;
+            }
+            if (this.timer <= 0) {
+                this.sub = 'go';
+                for (const h of this.hands) h.mode = 'clap';
+                audio.clawSwipe();
+            }
+        } else if (this.sub === 'go') {
+            for (const h of this.hands) h.x -= h.side * 560 * dt;
+            if (r.x - l.x <= 16) {
+                l.x = this.clapX - 8;
+                r.x = this.clapX + 8;
+                for (const h of this.hands) { h.mode = 'rest'; h.timer = 0.35; }
+                game.shake(5, 0.2);
+                audio.clawImpact();
+                game.fx.burst(this.clapX, this.clapY, 16, ['#ff3df0', '#ffffff', '#8d2fd0'], { speed: 160, gravity: 0, life: 0.35 });
+                game.fx.ring(this.clapX, this.clapY, '#ff3df0', 24, 0.25);
+                this.claps--;
+                this.sub = 'windup';
+                this.timer = 0.55;
+            }
+        }
     }
 
     updateIntro(dt, game) {
-        this.timer -= dt;
-        const t = 1 - this.timer / 3.2;
-        this.introAlpha = Math.min(1, t * 2);
-        if (t > 0.25) this.moveTo(500, 150, 1.6, dt);
-        if (!this.introRumble && t > 0.05) { this.introRumble = true; audio.pillarRumble(); }
-        if (!this.introRoar && t > 0.55) { this.introRoar = true; audio.bossRoar(1.4, 0.8); }
-        if (Math.random() < 0.8) game.fx.embers(500, GROUND_Y - 6, 2, ['#ff3df0', '#8d2fd0', '#1a0f1f'], 18);
-        if (this.timer <= 0) {
-            this.introAlpha = 1;
-            this.toHover(0.6);
+        const t = (this.introT += dt);
+        const once = (key, at) => t >= at && !this.introDone[key] && (this.introDone[key] = true);
+        const fx = game.fx;
+
+        // 1. Rumble: a glowing rift tears open in the ground, pebbles jump, the shaking builds
+        if (once('rumble', 0.05)) audio.pillarRumble();
+        if (t < 1.1) {
+            this.crackW = (t / 1.1) * 50;
+            game.shake(1 + t * 2, 0.08);
+            if (Math.random() < t * 0.7) fx.burst(INTRO_X + (Math.random() - 0.5) * this.crackW, GROUND_Y - 2, 2, DIRT, { speed: 50, up: 90, gravity: 420, life: 0.5, size: 1 });
+        } else {
+            this.crackW = Math.min(80, 50 + (t - 1.1) * 40);
+        }
+        if (Math.random() < 0.8) fx.embers(INTRO_X + (Math.random() - 0.5) * this.crackW, GROUND_Y - 4, 2, ['#ff3df0', '#8d2fd0', '#1a0f1f'], 14);
+
+        // the summoning tears the floating islands up out of the earth one by one: the ground cracks and
+        // spits dust, the island bursts out with a thud and a spray of rock, then rises shedding pebbles
+        const arena = game.arena;
+        if (once('islands', 0.15)) arena.startRise();
+        arena.platforms.forEach((p, i) => {
+            const mid = p.x + p.w / 2;
+            if (arena.rumble(i) > 0) {
+                game.shake(1.5, 0.06);
+                if (Math.random() < 0.5) fx.burst(p.x + p.w * (0.15 + Math.random() * 0.7), GROUND_Y - 3, 1, DIRT, { speed: 30, up: 90, gravity: 420, life: 0.4, size: 1 });
+                if (Math.random() < 0.3) fx.embers(mid + (Math.random() - 0.5) * p.w * 0.6, GROUND_Y - 3, 1, ['#ff3df0', '#c050ff'], 10);
+            }
+            if (arena.riseProgress(i) > 0 && !this.introDone[`burst${i}`]) {
+                this.introDone[`burst${i}`] = true;
+                game.shake(4, 0.25);
+                audio.bossThud();
+                fx.burst(mid, GROUND_Y - 4, 26, DIRT, { speed: 170, up: 160, gravity: 420, life: 0.8 });
+                fx.burst(mid, GROUND_Y - 4, 10, ['#5a4636', '#3a2c22'], { speed: 120, up: 200, gravity: 500, life: 1, size: 2 });
+                fx.ring(mid, GROUND_Y - 4, '#c050ff', Math.round(p.w * 0.45), 0.35);
+            }
+            const u = arena.riseProgress(i);
+            if (u > 0 && u < 0.85 && Math.random() < 0.6) {
+                const bottom = p.y + arena.platformOffset(i) + 20 + p.depth;
+                fx.burst(p.x + p.w * (0.2 + Math.random() * 0.6), bottom, 1, DIRT, { speed: 15, up: 0, gravity: 500, life: 0.7, size: 1 });
+            }
+        });
+
+        // 2. The claws burst out first and grip the edges of the rift, prying it open
+        if (once('hands', 1.1)) {
+            for (const h of this.hands) {
+                h.mode = 'intro';
+                h.x = INTRO_X + h.side * 28;
+                h.y = GROUND_Y + 24;
+                h.vy = -380; // punches up about 45px, then slams down onto the lip
+                fx.burst(h.x, GROUND_Y - 2, 16, DIRT, { speed: 140, up: 160, gravity: 420, life: 0.7 });
+            }
+            game.shake(5, 0.3);
+            audio.pillarErupt();
+        }
+        for (const h of this.hands) {
+            if (h.mode !== 'intro') continue;
+            h.vy += 1500 * dt;
+            h.y += h.vy * dt;
+            if (h.vy > 0 && h.y >= GROUND_Y - 10) {
+                if (h.vy > 150) audio.clawImpact();
+                h.y = GROUND_Y - 10;
+                h.vy = 0;
+            }
+            h.x += (INTRO_X + h.side * 48 - h.x) * Math.min(1, dt * 3);
+        }
+
+        // 3. The mask rises out of the rift, shedding dirt
+        if (once('rise', 1.5)) audio.bossRise();
+        if (t >= 1.5 && t < INTRO_ROAR) {
+            const u = Math.min(1, (t - 1.5) / (INTRO_ROAR - 1.5));
+            this.y = GROUND_Y + 70 - (1 - (1 - u) ** 3) * 110;
+            game.shake(2, 0.08);
+            if (Math.random() < 0.6) fx.burst(INTRO_X + (Math.random() - 0.5) * 50, GROUND_Y - 2, 2, DIRT, { speed: 70, up: 60, gravity: 420, life: 0.5, size: 1 });
+        }
+
+        // 4. Roar: eyes blaze, shockwave rings, its name appears, and it lifts into the air
+        if (once('roar', INTRO_ROAR)) {
+            this.charge = true;
+            for (const h of this.hands) h.mode = 'idle';
+            audio.bossRoar(1.4, 1);
+            game.shake(7, 0.9);
+            game.flashScreen('#ff3df0', 0.25);
+            fx.ring(this.x, this.y - 10, '#ff3df0', 60, 0.5);
+            fx.ring(this.x, this.y - 10, '#ffffff', 34, 0.35);
+            fx.burst(this.x, this.y - 10, 30, ['#ff3df0', '#8d2fd0', '#ffffff'], { speed: 200, gravity: 0, life: 0.6 });
+            game.hud.banner(this.name, this.title, 3.2);
+            game.onBossRoar(); // the battle theme kicks in on the roar
+        }
+        if (t >= INTRO_ROAR) this.moveTo(INTRO_X, 150, 2.2, dt);
+        if (t >= INTRO_ROAR + 0.6) this.charge = false;
+        if (t >= INTRO_TIME) this.toHover(0.6);
+    }
+
+    // Jump the intro ahead to the roar (player pressed a confirm key)
+    skipIntro() {
+        if (this.state !== 'intro' || this.introT >= INTRO_ROAR) return;
+        for (const key of ['rumble', 'hands', 'rise', 'islands']) this.introDone[key] = true;
+        for (let i = 0; i < 12; i++) this.introDone[`burst${i}`] = true; // islands are put in place, no bursts
+        this.introT = INTRO_ROAR;
+        this.y = GROUND_Y - 40;
+        this.crackW = 80;
+        for (const h of this.hands) {
+            h.mode = 'idle';
+            h.x = INTRO_X + h.side * 48;
+            h.y = GROUND_Y - 10;
         }
     }
 
@@ -487,9 +714,11 @@ export class Boss {
                 h.x += (this.x + h.side * spread - h.x) * k;
                 h.y += (this.y + 16 + bob - h.y) * k;
             } else if (h.mode === 'aim') {
+                // hover above Ren at whatever height she is (a platform is no hiding place)
                 const k = Math.min(1, dt * 8);
                 h.x += (p.x - h.x) * k;
-                h.y += (GROUND_Y - 120 - h.y) * k;
+                h.y += (Math.min(GROUND_Y, p.y) - 120 - h.y) * k;
+                h.landY = surfaceBelow(game.arena, h.x, h.y + 13);
                 h.timer -= dt;
                 if (h.timer <= 0) { h.mode = 'strike'; h.vy = 200; audio.clawSwipe(); }
             } else if (h.mode === 'strike') {
@@ -498,13 +727,19 @@ export class Boss {
                 if (overlap(this.handHitbox(h), p.hitbox)) {
                     if (p.takeDamage(16, Math.sign(p.x - h.x || 1) * 180, game.fx)) game.onPlayerHit();
                 }
-                if (h.y >= GROUND_Y - 12) {
-                    h.y = GROUND_Y - 12;
+                // slams into the first floor under it: a platform or the ground
+                if (h.y >= h.landY - 12) {
+                    h.y = h.landY - 12;
                     h.mode = 'rest';
                     h.timer = 0.3;
                     game.shake(3, 0.12);
                     audio.clawImpact();
-                    game.fx.burst(h.x, GROUND_Y - 2, 10, ['#c8b090', '#8a7058', '#ff3df0'], { speed: 110, up: 80, life: 0.45 });
+                    game.fx.burst(h.x, h.landY - 2, 10, ['#c8b090', '#8a7058', '#ff3df0'], { speed: 110, up: 80, life: 0.45 });
+                }
+            } else if (h.mode === 'clap') {
+                // moved by updateClap; hurts while the claws rush together
+                if (overlap(this.handHitbox(h), p.hitbox)) {
+                    if (p.takeDamage(16, h.side * -180, game.fx)) game.onPlayerHit();
                 }
             } else if (h.mode === 'rest') {
                 h.timer -= dt;
@@ -547,8 +782,44 @@ export class Boss {
         }
     }
 
+    // The rift the boss rises from: a jagged dark tear across the grass with blight glowing inside and
+    // light leaking up out of it. Drawn over the foreground grass so it reads.
+    renderRift(ctx) {
+        const w = Math.round(this.crackW);
+        if (w < 2 || this.dead) return;
+        const x0 = Math.round(INTRO_X - w / 2);
+        const glow = Math.floor(this.t * 10) % 2;
+        const top = GROUND_Y - 4;
+        if (this.state === 'intro') {
+            // thin flickering shafts of blight light leaking up through the tear
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            for (let i = 2; i < w - 2; i += 3) {
+                const h = Math.round((6 + ((i * 13) % 17)) * (0.6 + 0.4 * Math.sin(this.t * 8 + i)));
+                ctx.fillStyle = (i * 7) % 5 < 2 ? 'rgba(255,61,240,0.35)' : 'rgba(141,47,208,0.3)';
+                ctx.fillRect(x0 + i, top - h, 1, h);
+            }
+            ctx.restore();
+        }
+        for (let i = 0; i < w; i++) {
+            const edge = Math.min(i, w - 1 - i);
+            const d = Math.min(Math.floor(edge / 2) + 1, 4 + ((i * 7) % 3));
+            ctx.fillStyle = '#0a0510';
+            ctx.fillRect(x0 + i, top + 2 - Math.floor(d / 2), 1, d + 2);
+            if (d > 2 && (i + glow) % 2 === 0) {
+                ctx.fillStyle = (i * 5) % 7 < 3 ? '#ff3df0' : '#8d2fd0';
+                ctx.fillRect(x0 + i, top + 2, 1, 1 + (i % 2));
+            }
+        }
+        // broken turf flung up along the lips of the rift
+        ctx.fillStyle = '#5a4636';
+        ctx.fillRect(x0 - 3, top, 3, 2);
+        ctx.fillRect(x0 + w, top, 3, 2);
+    }
+
     renderShadow(ctx) {
         if (this.dead) return;
+        if (this.y > GROUND_Y - 30) return; // still in (or just out of) the ground
         const h = GROUND_Y - this.y;
         const w = Math.max(16, Math.round(60 - h / 5));
         ctx.fillStyle = 'rgba(20,8,24,0.5)';
@@ -561,9 +832,10 @@ export class Boss {
         }
         for (const hand of this.hands) {
             if (hand.mode === 'aim') {
+                // warning line on the floor the claw will hit
                 const on = Math.floor(this.t * 14) % 2;
                 ctx.fillStyle = on ? '#ff3df0' : '#7c1631';
-                ctx.fillRect(Math.round(hand.x - 12), GROUND_Y - 2, 24, 2);
+                ctx.fillRect(Math.round(hand.x - 12), (hand.landY || GROUND_Y) - 2, 24, 2);
             }
         }
     }
@@ -572,7 +844,13 @@ export class Boss {
         if (this.dead) return;
         const s = this.sprites;
         ctx.save();
-        if (this.state === 'intro') ctx.globalAlpha = this.introAlpha;
+        // While emerging, only the part above the ground line shows
+        const emerging = this.state === 'intro';
+        if (emerging) {
+            ctx.beginPath();
+            ctx.rect(this.x - 200, GROUND_Y - 400, 400, 400);
+            ctx.clip();
+        }
 
         this.renderTails(ctx);
 
@@ -603,13 +881,22 @@ export class Boss {
         }
         ctx.restore();
 
-        if (this.state === 'intro' && this.introAlpha < 1) return;
+        // Claws stay hidden until they burst out of the ground
+        if (emerging && !this.introDone.hands) return;
         for (const h of this.hands) {
-            const img = flashing ? s.handFlash : (h.mode === 'aim' && Math.floor(this.t * 14) % 2 === 0) ? s.handWarn : s.hand;
+            const warning = h.mode === 'aim' || h.mode === 'clapAim';
+            const img = flashing ? s.handFlash : (warning && Math.floor(this.t * 14) % 2 === 0) ? s.handWarn : s.hand;
             ctx.save();
+            if (emerging) {
+                ctx.beginPath();
+                ctx.rect(h.x - 40, GROUND_Y - 400, 80, 400);
+                ctx.clip();
+            }
             ctx.translate(Math.round(h.x), Math.round(h.y));
             const strikeDown = h.mode === 'aim' || h.mode === 'strike' || h.mode === 'rest';
             if (strikeDown) ctx.rotate(Math.PI / 2);
+            else if (h.mode === 'intro') ctx.rotate(-Math.PI / 2); // reaching up out of the rift
+            else if (h.mode === 'clapAim' || h.mode === 'clap') ctx.scale(-h.side, 1); // claws facing each other
             else ctx.scale(h.side, 1);
             ctx.drawImage(img, -15, -13);
             ctx.restore();

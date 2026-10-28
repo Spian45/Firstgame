@@ -452,6 +452,13 @@ class AudioManager {
     }
 
     // ---- Music (composed procedural themes live in music.js)
+    // Settings menu levels, 0-10 each (7 = the original mix)
+    setLevels(musicLevel, sfxLevel) {
+        this.bgmVolume = 0.05 * musicLevel;
+        this.sfxVolume = 0.085 * sfxLevel;
+        music.setVolume(this.musicVolume);
+    }
+
     get musicVolume() {
         return this.bgmVolume * this.masterVolume * 2.2;
     }

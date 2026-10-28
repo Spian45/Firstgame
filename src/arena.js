@@ -1,4 +1,4 @@
-// Boss arena: "Ruined Shrine of the Autumn Vale"
+﻿// Boss arena: "Ruined Shrine of the Autumn Vale"
 // Built from the GandalfHardcore autumn background layers, floor tiles and decor sheets.
 // The layout is deliberately asymmetric: nothing on the left mirrors the right.
 export const VIEW_W = 640;
@@ -35,6 +35,10 @@ const STUMP = [194, 8, 27, 24];
 const LOG = [196, 144, 112, 32];
 // Floor Tiles1: dark earth with hanging stalactites, used for the floating platforms' undersides
 const STALACTITES = { sx: 224, sy: 296, w: 64, h: 32 };
+// Platforms rising out of the ground at the start of a fight
+const RUMBLE_TIME = 0.4;   // the ground cracks and glows this long before each island bursts out
+const RISE_TIME = 1.4;     // seconds for one island to rise (with a small overshoot)
+const RISE_STAGGER = 0.2;  // delay between neighbouring islands
 const GARDEN = { urn: [35, 86, 27, 42] };
 
 // Arena trees (world x, no parallax), in the gaps between torches so none stands behind one
@@ -82,10 +86,10 @@ export class Arena {
         // Climbable but irregular: low left ledge (double jump), steps up to a wide high perch,
         // a mid-right stepping stone and a right ledge. Each island has its own shape and dressing.
         this.platforms = [
-            { x: 52, y: 238, w: 96, depth: 30, slopeL: 1.3, slopeR: 0.7, deco: 'bush', floater: true },
+            { x: 52, y: 238, w: 96, depth: 30, slopeL: 1.3, slopeR: 0.7, deco: 'bush' },
             { x: 196, y: 186, w: 64, depth: 18, slopeL: 0.8, slopeR: 1.5, deco: 'mushrooms' },
-            { x: 318, y: 150, w: 128, depth: 42, slopeL: 0.55, slopeR: 1.0, deco: 'rock', floater: true },
-            { x: 492, y: 212, w: 64, depth: 24, slopeL: 1.2, slopeR: 0.8, deco: 'tufts', floater: true },
+            { x: 318, y: 150, w: 128, depth: 42, slopeL: 0.55, slopeR: 1.0, deco: 'rock' },
+            { x: 492, y: 212, w: 64, depth: 24, slopeL: 1.2, slopeR: 0.8, deco: 'tufts' },
             { x: 590, y: 168, w: 96, depth: 34, slopeL: 1.0, slopeR: 0.55, deco: 'bushSmall' }
         ];
         this.torches = [
@@ -95,6 +99,13 @@ export class Arena {
             { x: 434, y: 150, frame: 4 },
             { x: 676, y: 168, frame: 2 }
         ];
+        // torches standing on a platform ride along with it
+        for (const t of this.torches) {
+            if (t.y !== undefined) t.plat = this.platforms.findIndex((p) => p.y === t.y);
+        }
+        // Platforms start buried and rise out of the ground when the boss is summoned (startRise),
+        // then float with a gentle bob
+        this.riseStart = null;
         this.campfire = { x: 258 };
         this.clouds = [
             { img: 'cloud6', x: 40, y: 18, speed: 3 },
@@ -124,7 +135,8 @@ export class Arena {
                 x: p.x + dx,
                 y: p.y + 22 + Math.floor(p.depth * 0.45),
                 len: 6 + ((dx * 7 + i * 5 + k * 3) % 10),
-                phase: dx * 0.3 + k
+                phase: dx * 0.3 + k,
+                plat: k
             }));
         });
 
@@ -135,9 +147,137 @@ export class Arena {
         }
     }
 
+    startRise() {
+        if (this.riseStart === null) this.riseStart = this.time;
+    }
+
+    // Skip straight to every platform up and floating
+    finishRise() {
+        this.riseStart = this.time - 10;
+    }
+
+    // Seconds since island i burst out of the ground (negative while still buried / rumbling)
+    sinceBreakout(i) {
+        if (this.riseStart === null) return -99;
+        return this.time - this.riseStart - i * RISE_STAGGER - RUMBLE_TIME;
+    }
+
+    // 0..1 while the ground above island i cracks and glows before it bursts out
+    rumble(i) {
+        const s = this.sinceBreakout(i);
+        return s < 0 && s > -RUMBLE_TIME ? 1 + s / RUMBLE_TIME : 0;
+    }
+
+    // 0 = buried, 1 = fully risen. Islands go one after another, left to right.
+    riseProgress(i) {
+        return Math.max(0, Math.min(1, this.sinceBreakout(i) / RISE_TIME));
+    }
+
+    // Vertical offset of platform i from its resting height: deep underground, then a rise that
+    // overshoots a little and settles back, then a slow float
+    platformOffset(i) {
+        if (i === undefined || i < 0) return 0;
+        const p = this.platforms[i];
+        const buried = GROUND_Y + 30 - p.y;
+        const u = this.riseProgress(i);
+        const k = u - 1;
+        const e = 1 + 2.2 * k * k * k + 1.2 * k * k; // ease-out-back
+        const bob = Math.sin(this.time * 1.1 + i * 1.7) * 1.5 * Math.min(1, u);
+        return Math.round(buried * (1 - e) + bob);
+    }
+
+    // Sideways judder while an island tears free, dying out as it reaches the top
+    platformShake(i) {
+        const u = this.riseProgress(i);
+        if (u <= 0 || u >= 0.9) return 0;
+        return Math.round(Math.sin(this.time * 55 + i * 3) * (1 - u) * 1.6);
+    }
+
+    // Soft light-purple beam lifting island i: a wide faint glow, a narrower brighter band and a thin
+    // white-lilac core, with streaks of light flowing upward. Fades in as the island breaks out and
+    // fades away as it arrives.
+    renderLiftBeam(ctx, p, i, u) {
+        // the beam starts up inside the island's earth body (drawn before the island, so the island
+        // covers its top) and pours out from under the stalactites without a visible edge
+        const bottom = Math.round(p.y + this.platformOffset(i) + 22);
+        const h = GROUND_Y - 2 - bottom;
+        if (h < 3) return;
+        const strength = Math.sin(Math.PI * Math.min(1, u * 1.15)); // 0 -> 1 -> 0 over the rise
+        const cx = Math.round(p.x + p.w / 2);
+        const w = Math.round(p.w * 0.5);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        // layered glow, each band narrower and brighter
+        for (const [scale, alpha, color] of [[1, 0.1, '200,170,255'], [0.62, 0.14, '214,190,255'], [0.28, 0.2, '240,228,255']]) {
+            const bw = Math.max(2, Math.round(w * scale));
+            ctx.fillStyle = `rgba(${color},${(alpha * strength).toFixed(3)})`;
+            ctx.fillRect(cx - Math.round(bw / 2), bottom, bw, h);
+        }
+        // a 1px white core
+        ctx.fillStyle = `rgba(255,250,255,${(0.35 * strength).toFixed(3)})`;
+        ctx.fillRect(cx, bottom, 1, h);
+        // streaks rising through the beam
+        for (let k = 0; k < 7; k++) {
+            const sx = cx - Math.round(w * 0.4) + ((k * 37 + i * 11) % Math.max(1, Math.round(w * 0.8)));
+            const len = 6 + (k % 3) * 3;
+            const sy = GROUND_Y - 2 - ((this.time * (110 + k * 15) + k * 29) % (h + len));
+            const top = Math.max(bottom, Math.round(sy - len));
+            const segH = Math.min(Math.round(sy), GROUND_Y - 2) - top;
+            if (segH <= 0) continue;
+            ctx.fillStyle = `rgba(245,235,255,${(0.45 * strength).toFixed(3)})`;
+            ctx.fillRect(sx, top, 1, segH);
+        }
+        // where the beam meets the ground: a soft bright pool
+        ctx.fillStyle = `rgba(230,210,255,${(0.25 * strength).toFixed(3)})`;
+        ctx.fillRect(cx - Math.round(w * 0.6), GROUND_Y - 4, Math.round(w * 1.2), 2);
+        ctx.fillRect(cx - Math.round(w * 0.4), GROUND_Y - 5, Math.round(w * 0.8), 1);
+        ctx.restore();
+    }
+
+    // Ground under each island: a glowing crack while it rumbles, a crater after it leaves (fading),
+    // and a column of blight light lifting it while it rises
+    renderRiseEffects(ctx) {
+        this.platforms.forEach((p, i) => {
+            const x0 = Math.round(p.x + p.w * 0.1);
+            const w = Math.round(p.w * 0.8);
+            const r = this.rumble(i);
+            const since = this.sinceBreakout(i);
+            if (r > 0) {
+                // crack spreading out from the middle, pink light flickering inside
+                const half = Math.round((w / 2) * Math.min(1, r * 1.6));
+                const cx = x0 + Math.round(w / 2);
+                for (let x = cx - half; x < cx + half; x++) {
+                    const d = 1 + ((x * 7) % 3);
+                    ctx.fillStyle = '#0a0510';
+                    ctx.fillRect(x, GROUND_Y - 3, 1, d + 1);
+                    if ((x + Math.floor(this.time * 20)) % 3 === 0) {
+                        ctx.fillStyle = r > 0.6 ? '#ffd6ff' : '#ff3df0';
+                        ctx.fillRect(x, GROUND_Y - 2, 1, 1);
+                    }
+                }
+            } else if (since >= 0 && since < RISE_TIME + 3) {
+                // crater left behind, fading out
+                const fade = Math.min(1, (RISE_TIME + 3 - since) / 2);
+                ctx.globalAlpha = 0.85 * fade;
+                ctx.fillStyle = '#0a0510';
+                ctx.fillRect(x0 + 3, GROUND_Y - 4, w - 6, 3);
+                ctx.fillRect(x0, GROUND_Y - 3, w, 2);
+                ctx.fillStyle = '#5a4636';
+                ctx.fillRect(x0 - 3, GROUND_Y - 5, 4, 2);
+                ctx.fillRect(x0 + w - 1, GROUND_Y - 5, 4, 2);
+                ctx.globalAlpha = 1;
+            }
+            const u = this.riseProgress(i);
+            if (u > 0 && u < 1) this.renderLiftBeam(ctx, p, i, u);
+        });
+    }
+
     // Top surface of every standable surface: { x, w, y, oneWay }
     get surfaces() {
-        return this.platforms.map((p) => ({ x: p.x + 4, w: p.w - 8, y: p.y + 4, oneWay: true }));
+        // a platform still buried (or mostly) is not standable
+        return this.platforms
+            .map((p, i) => ({ x: p.x + 4, w: p.w - 8, y: p.y + this.platformOffset(i) + 4, oneWay: true }))
+            .filter((s) => s.y < GROUND_Y - 8);
     }
 
     update(dt, targetCorruption) {
@@ -148,9 +288,9 @@ export class Arena {
             if (c.x < -180) c.x = 820;
         }
         for (const b of this.birds) {
-            b.x -= 14 * dt;
+            b.x += 14 * dt; // the flock sprite faces right, so it flies right
             b.phase += dt * 8;
-            if (b.x < -40) b.x = 860;
+            if (b.x > 860) b.x = -40;
         }
         for (const f of this.fireflies) {
             f.phase += dt * f.speed;
@@ -236,16 +376,18 @@ export class Arena {
                 ctx.drawImage(a.floor, TILE_FILL.sx, TILE_FILL.sy, 32, 32, x, GROUND_Y + 28, 32, 32);
             }
             if (!this.islands) this.islands = this.platforms.map((p, i) => this.buildIsland(p, i));
+            this.renderRiseEffects(ctx);
+            // islands (with their vines) only show above the ground line while they rise out of it
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, -100, ARENA_W, GROUND_Y + 100 - 2);
+            ctx.clip();
             this.renderVines(ctx);
             this.platforms.forEach((p, i) => {
                 const isl = this.islands[i];
-                ctx.drawImage(isl.canvas, p.x, p.y - isl.topPad);
-                // little rock chunk drifting under some islands
-                if (isl.floater) {
-                    const bob = Math.round(Math.sin(this.time * 1.4 + i * 1.7) * 2);
-                    ctx.drawImage(isl.floater, p.x + isl.floaterX, p.y + 24 + p.depth + 6 + bob);
-                }
+                ctx.drawImage(isl.canvas, p.x + this.platformShake(i), p.y + this.platformOffset(i) - isl.topPad);
             });
+            ctx.restore();
         } else {
             ctx.fillStyle = '#2a1e18';
             ctx.fillRect(0, GROUND_Y, ARENA_W, VIEW_H - GROUND_Y);
@@ -262,7 +404,8 @@ export class Arena {
             const frameStep = Math.floor(this.time * 10);
             for (const t of this.torches) {
                 const f = (frameStep + t.frame) % 6;
-                const baseY = (t.y !== undefined ? t.y + 4 : GROUND_Y);
+                if (t.plat !== undefined && this.platforms[t.plat].y + this.platformOffset(t.plat) > GROUND_Y - 30) continue; // still underground
+                const baseY = (t.y !== undefined ? t.y + this.platformOffset(t.plat) + 4 : GROUND_Y);
                 ctx.drawImage(a.torch, f * 32, 32, 32, 32, t.x - 16, baseY - 32, 32, 32);
             }
         }
@@ -284,7 +427,7 @@ export class Arena {
         c.height = H;
         const g = c.getContext('2d');
         g.imageSmoothingEnabled = false;
-        const out = { canvas: c, topPad, floater: null, floaterX: 0 };
+        const out = { canvas: c, topPad };
         if (!img) return out;
 
         const inset = 5;
@@ -345,25 +488,6 @@ export class Arena {
             put('tuftA', 6);
         }
 
-        // optional little floating rock: a tapered chunk of the same earth + stalactites
-        if (p.floater) {
-            const fw = 18 + (index % 3) * 4;
-            const fh = 14;
-            const f = document.createElement('canvas');
-            f.width = fw;
-            f.height = fh;
-            const fg = f.getContext('2d');
-            fg.imageSmoothingEnabled = false;
-            fg.drawImage(img, st.sx + 10, st.sy + st.h - fh, fw, fh, 0, 0, fw, fh);
-            fg.globalCompositeOperation = 'destination-out';
-            for (let y = 0; y < fh; y++) {
-                const cut = Math.floor(y * 0.6) + (y < 2 ? 2 - y : 0);
-                fg.fillRect(0, y, cut, 1);
-                fg.fillRect(fw - cut, y, cut, 1);
-            }
-            out.floater = f;
-            out.floaterX = Math.floor(p.w * (index % 2 ? 0.25 : 0.6));
-        }
         return out;
     }
 
@@ -393,7 +517,7 @@ export class Arena {
             for (let i = 0; i < v.len; i++) {
                 const sway = Math.round(Math.sin(this.time * 1.6 + v.phase + i * 0.25) * (i / v.len) * 2.5);
                 const x = v.x + sway;
-                const y = v.y + i * 2;
+                const y = v.y + this.platformOffset(v.plat) + i * 2;
                 ctx.fillStyle = '#4a2f1c';
                 ctx.fillRect(x, y, 1, 2);
                 if (i % 3 === 1) {
@@ -410,7 +534,8 @@ export class Arena {
         ctx.globalCompositeOperation = 'lighter';
         const flicker = Math.floor(this.time * 12) % 2;
         for (const t of this.torches) {
-            const baseY = (t.y !== undefined ? t.y + 4 : GROUND_Y);
+            if (t.plat !== undefined && this.platforms[t.plat].y + this.platformOffset(t.plat) > GROUND_Y - 30) continue;
+            const baseY = (t.y !== undefined ? t.y + this.platformOffset(t.plat) + 4 : GROUND_Y);
             pixelGlow(ctx, t.x, baseY - 26, 34 + flicker * 2, 'rgba(255,140,50,0.045)', 5);
         }
         if (this.a.campfire) pixelGlow(ctx, this.campfire.x, GROUND_Y - 24, 44 + flicker * 3, 'rgba(255,120,40,0.03)', 5);

@@ -113,6 +113,73 @@ export class BlightOrb {
     }
 }
 
+// Boss (hard): blight meteor. A blinking target mark on the ground first, then an orb drops from the sky onto it
+export class Meteor {
+    constructor(x, delay) {
+        this.x = x;
+        this.y = -16;
+        this.warn = 0.55 + delay;
+        this.vy = 0;
+        this.dead = false;
+        this.t = 0;
+    }
+
+    get hitbox() {
+        return this.warn > 0 ? null : { x: this.x - 5, y: this.y - 5, w: 10, h: 10 };
+    }
+
+    update(dt, game) {
+        this.t += dt;
+        if (this.warn > 0) {
+            this.warn -= dt;
+            return;
+        }
+        this.vy = Math.min(420, this.vy + 900 * dt);
+        this.y += this.vy * dt;
+        if (Math.random() < 0.8) game.fx.embers(this.x, this.y - 6, 1, ['#ff3df0', '#8d2fd0', '#ffd6ff'], 3);
+        if (this.y >= GROUND_Y - 4) {
+            this.dead = true;
+            game.shake(2, 0.08);
+            game.fx.burst(this.x, GROUND_Y - 3, 10, ['#ff3df0', '#c050ff', '#ffd6ff'], { speed: 110, up: 80, life: 0.4 });
+            game.fx.ring(this.x, GROUND_Y - 3, '#ff3df0', 14, 0.2);
+            return;
+        }
+        const p = game.player;
+        if (overlap(this.hitbox, p.hitbox)) {
+            if (p.takeDamage(12, Math.sign(p.x - this.x || 1) * 120, game.fx)) {
+                game.onPlayerHit();
+                this.dead = true;
+            }
+        }
+    }
+
+    render(ctx) {
+        const x = Math.round(this.x);
+        if (this.warn > 0) {
+            // ground target: two chevrons closing in, blinking faster as it nears impact
+            const on = Math.floor(this.t * (this.warn < 0.3 ? 18 : 8)) % 2 === 0;
+            const gap = 3 + Math.round(Math.min(1, this.warn / 0.6) * 6);
+            ctx.fillStyle = on ? '#ff3df0' : '#8d2fd0';
+            ctx.fillRect(x - gap - 3, GROUND_Y - 2, 3, 1);
+            ctx.fillRect(x - gap - 1, GROUND_Y - 3, 1, 1);
+            ctx.fillRect(x + gap, GROUND_Y - 2, 3, 1);
+            ctx.fillRect(x + gap, GROUND_Y - 3, 1, 1);
+            if (on) ctx.fillRect(x, GROUND_Y - 2, 1, 1);
+            return;
+        }
+        const y = Math.round(this.y);
+        ctx.fillStyle = '#8d2fd0';
+        ctx.fillRect(x - 1, y - 14, 3, 10); // falling streak
+        ctx.fillStyle = '#1a0f1f';
+        ctx.fillRect(x - 5, y - 4, 11, 9);
+        ctx.fillRect(x - 4, y - 5, 9, 11);
+        ctx.fillStyle = '#c050ff';
+        ctx.fillRect(x - 4, y - 4, 9, 9);
+        ctx.fillStyle = Math.floor(this.t * 14) % 2 ? '#ff3df0' : '#ffd6ff';
+        ctx.fillRect(x - 2, y - 2, 5, 5);
+    }
+}
+
 // Boss: ground shockwave travelling along the floor
 export class Shockwave {
     constructor(x, dir, speed) {
@@ -156,9 +223,9 @@ export class Shockwave {
 }
 
 // Boss phase 2: a pulsing rune circle on the ground, then a purple blight-energy beam erupts
-const PILLAR_H = 170;
+const PILLAR_H = GROUND_Y + 10; // reaches past the top of the screen: platforms are no shelter
+const RISE_SPEED = 2600;         // px/s the beam shoots up
 const PILLAR_ACTIVE = 0.7;
-const RISE_TIME = 0.08;
 
 export class Pillar {
     constructor(x, delay) {
@@ -174,7 +241,8 @@ export class Pillar {
     // Only dangerous once erupted
     get hitbox() {
         if (this.warn > 0) return null;
-        return { x: this.x - 13, y: GROUND_Y - PILLAR_H, w: 26, h: PILLAR_H };
+        const h = Math.min(PILLAR_H, this.age * RISE_SPEED); // only as tall as the beam has risen so far
+        return { x: this.x - 13, y: GROUND_Y - h, w: 26, h };
     }
 
     update(dt, game) {
@@ -206,7 +274,7 @@ export class Pillar {
         if (this.warn > 0) return this.renderRune(ctx, x);
 
         // Beam rises out of the ground, then thins out over the last 0.2s
-        const height = Math.round(PILLAR_H * Math.min(1, this.age / RISE_TIME));
+        const height = Math.round(Math.min(PILLAR_H, this.age * RISE_SPEED));
         const fade = Math.min(1, this.active / 0.2);
         const top = GROUND_Y - height;
         const t = this.t;

@@ -53,14 +53,15 @@ const REN_PIXEL = {
     sheets: {
         idle: { src: PIXEL + 'ren_idle.png', frames: 10, fps: 6 },
         walk: { src: PIXEL + 'ren_walk.png', frames: 12, fps: 12 },
-        run: { src: PIXEL + 'ren_run.png', frames: 15, fps: 24 },
+        // gallery shows it at 12fps like the rest; gameplay plays it at 24fps so the legs keep up with her speed
+        run: { src: PIXEL + 'ren_run.png', frames: 15, fps: 12, playFps: 24 },
         // full jump arc: 0-1 stand, 2 crouch, 3-4 rise, 5-9 airborne, 10-12 landing
         // per-frame anchor: standing/landing frames use their measured foot position, airborne frames 36
         fall: { src: PIXEL + 'ren_fall.png', frames: 13, fps: 12, anchorX: [43, 42, 39, 36, 36, 36, 36, 36, 36, 36, 38, 35, 35] },
         // 0-4 stance, 5-9 wind-up, 10-19 punch extended, 20-24 recover
-        attack: { src: PIXEL + 'ren_attack.png', frames: 25, fps: 24 },
-        // 2-9 side-view flinch (10-12 turn to camera: unused)
-        hurt: { src: PIXEL + 'ren_hurt.png', frames: 13, fps: 12 },
+        attack: { src: PIXEL + 'ren_attack.png', frames: 25, fps: 12 },
+        // side-view flinch
+        hurt: { src: PIXEL + 'ren_hurt.png', frames: 8, fps: 12 },
         // 2-12 stagger, kneel, fall onto her side
         death: { src: PIXEL + 'ren_death.png', frames: 13, fps: 12 }
     },
@@ -77,7 +78,10 @@ const REN_PIXEL = {
         drop: { sheet: 'fall', frames: [4, 3], fps: 8, hold: true },
         flip: ['fall', 10], // tucked crouch, spun by the double-jump somersault
         slam: ['fall', 10, 38], // tucked knees-down dive
-        hurt: { sheet: 'hurt', from: 2, to: 9, fps: 28, hold: true },
+        // forward-leaning lunge, legs tucked, tail streaming behind: snap into it and hold for the dash
+        // (frame 6 is skipped: hair strands bleed onto her hand there)
+        dash: { sheet: 'fall', frames: [4, 5], fps: 30, hold: true },
+        hurt: { sheet: 'hurt', from: 0, to: 7, fps: 28, hold: true },
         death: { sheet: 'death', from: 2, to: 12, fps: 9, hold: true }
     },
     // attack sheet frames per combo hit, spread over that hit's duration

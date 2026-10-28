@@ -80,6 +80,18 @@ export class Player {
         this.afterTimer = 0;
         this.dead = false;
         this.hitsLanded = 0;
+
+        // Set from the difficulty when a fight starts
+        this.damageTaken = 1;   // multiplier on incoming damage
+        this.regen = 0;         // health per second once out of danger
+        this.regenDelay = 4;    // seconds without being hit before regen starts
+        this.sinceHit = 0;
+        this.lastDamage = 0;
+        this.minX = 10; // left wall; lowered while she walks in from off-screen
+    }
+
+    get regenerating() {
+        return this.regen > 0 && !this.dead && this.sinceHit >= this.regenDelay && this.health < this.maxHealth;
     }
 
     get hitbox() {
@@ -109,6 +121,9 @@ export class Player {
             return false;
         }
         if (this.invuln > 0) return false;
+        amount = Math.max(1, Math.round(amount * this.damageTaken));
+        this.lastDamage = amount;
+        this.sinceHit = 0;
         this.health = Math.max(0, this.health - amount);
         this.invuln = 0.9;
         this.hurtTimer = 0.28;
@@ -150,6 +165,8 @@ export class Player {
         this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
         this.dropThrough = Math.max(0, this.dropThrough - dt);
         this.mana = Math.min(this.maxMana, this.mana + 4 * dt);
+        this.sinceHit += dt;
+        if (this.regenerating) this.health = Math.min(this.maxHealth, this.health + this.regen * dt);
 
         if (input.jump) this.jumpBuffer = 0.12;
         if (this.flipTimer > 0) {
@@ -269,7 +286,7 @@ export class Player {
         const prevY = this.y;
         this.x += this.vx * dt;
         this.y += this.vy * dt;
-        this.x = Math.max(10, Math.min(ARENA_W - 10, this.x));
+        this.x = Math.max(this.minX, Math.min(ARENA_W - 10, this.x));
 
         // Ground and one-way platforms
         const wasGrounded = this.grounded;
@@ -420,7 +437,7 @@ export class Player {
             const a = ax !== undefined ? ax : Array.isArray(s[key].anchorX) ? s[key].anchorX[i] : s[key].anchorX;
             return { img: this.sheets[key], sx: i * FW, ax: a !== undefined ? Math.round(a * CHARACTER.scale) : AX };
         };
-        const loop = (key) => pick(key, Math.floor(this.animTime * s[key].fps));
+        const loop = (key) => pick(key, Math.floor(this.animTime * (s[key].playFps || s[key].fps)));
         // [sheet, frame] | { sheet, from, to, fps, hold } | { sheet, frames: [...], fps, hold }
         // frames entries are frame numbers of `sheet`, or [otherSheet, frame, anchorX?] to borrow a pose
         const pose = (p) => {
@@ -436,8 +453,9 @@ export class Player {
             case 'walk':
                 return s.walk ? loop('walk') : loop('run');
             case 'run':
-            case 'dash':
                 return loop('run');
+            case 'dash':
+                return poses.dash ? pose(poses.dash) : loop('run');
             case 'attack': {
                 const c = COMBO[this.comboStep];
                 const t = 1 - this.attackTimer / c.duration;
