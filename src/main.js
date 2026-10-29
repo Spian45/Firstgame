@@ -275,7 +275,7 @@ class Game {
         const slow = this.slowmo > 0 ? 0.3 : 1;
         this.slowmo = Math.max(0, (this.slowmo || 0) - raw);
         // debug can halt the simulation (still drawing) and advance it one frame at a time
-        if (this.debug.shouldStep()) this.update(Math.min(1 / 30, raw) * this.debug.timeScale * slow);
+        if (this.debug.shouldStep()) this.update(Math.max(0, Math.min(1 / 30, raw)) * this.debug.timeScale * slow); // first frame can come out slightly negative
         this.touch.layout = this.touchLayout();
         this.render();
         this.input.update();

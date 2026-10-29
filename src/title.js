@@ -49,6 +49,8 @@ const CHANGELOG = [
             ['NEW', 'SETTINGS IN THE PAUSE MENU'],
             ['CHANGED', 'BIGGER PHONE CONTROLS WITH A FLOATING JOYSTICK'],
             ['NEW', 'PHONES GO FULLSCREEN WHEN A FIGHT STARTS'],
+            ['NEW', 'INSTALL THE GAME AS AN APP ON PHONES'],
+            ['NEW', 'FOXFIRE CAST GLOW AND RUNE AROUND REN'],
             ['FIXED', 'NO STRAY SPIKES HANGING UNDER PLATFORMS'],
             ['CHANGED', 'BOSS MUSIC STARTS WHEN THE BOSS ROARS'],
             ['CHANGED', 'PAUSE MENU REDESIGN WITH STATS AND TIPS'],
@@ -78,6 +80,10 @@ LOG.x = (VIEW_W - LOG.w) / 2;
 LOG.y = (VIEW_H - LOG.h) / 2;
 LOG.rows = Math.floor((LOG.h - LOG.listTop - 30) / LOG.rowH);
 const LOG_TAB_W = 56;
+
+// Title screen INSTALL APP badge (top-left, touch devices only)
+const INSTALL_BADGE = { x: 8, y: 8, w: 86, h: 16 };
+const inRect = (p, r) => p.x >= r.x - 4 && p.x <= r.x + r.w + 4 && p.y >= r.y - 4 && p.y <= r.y + r.h + 4;
 
 // Credits page role cards: [role, name, accent colour]
 const CREDIT_ROLES = [
@@ -173,6 +179,13 @@ export class TitleScreen {
             if (input.back || input.confirm) this.page = 'menu';
             return;
         }
+        // INSTALL APP badge (touch devices, not yet installed)
+        if (input.tap && this.showInstall(game) && inRect(input.tap, INSTALL_BADGE)) {
+            this.install();
+            return;
+        }
+        if (this.toastTime > 0) this.toastTime -= dt;
+
         const items = this.items(game);
         if (input.menuUp) this.selected = (this.selected + items.length - 1) % items.length;
         if (input.menuDown) this.selected = (this.selected + 1) % items.length;
@@ -193,6 +206,33 @@ export class TitleScreen {
                 items[i].action();
             }
         }
+    }
+
+    // Already running as an installed app?
+    get installed() {
+        return window.matchMedia('(display-mode: fullscreen)').matches ||
+            window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    }
+
+    showInstall(game) {
+        return game.touch.enabled && !this.installed;
+    }
+
+    // Chrome / Edge hand us an install offer we can show; other browsers get instructions instead
+    install() {
+        const offer = window.installPrompt;
+        if (offer) {
+            offer.prompt();
+            offer.userChoice.finally(() => { window.installPrompt = null; });
+            return;
+        }
+        const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+        this.toast(ios ? 'TAP SHARE THEN ADD TO HOME SCREEN' : 'BROWSER MENU THEN INSTALL APP OR ADD TO HOME SCREEN');
+    }
+
+    toast(text) {
+        this.toastText = text;
+        this.toastTime = 4;
     }
 
     // Rows of the settings page. Volume rows have a `level` key into game.settings (0-10).
@@ -432,6 +472,29 @@ export class TitleScreen {
 
         drawText(ctx, touch ? 'TAP AN OPTION' : 'W/S OR MOUSE SELECT   ENTER OR CLICK CONFIRM', 52, VIEW_H - 22, { color: DIM, outline: true });
         drawText(ctx, `${CHANGELOG[0].version} DEMO`, VIEW_W - 10, VIEW_H - 22, { color: DIM, align: 'right', outline: true });
+
+        if (this.showInstall(game)) {
+            const b = INSTALL_BADGE;
+            const pulse = Math.floor(t * 2) % 2 === 0;
+            ctx.fillStyle = '#140c1c';
+            ctx.fillRect(b.x - 1, b.y - 1, b.w + 2, b.h + 2);
+            ctx.fillStyle = pulse ? '#7ee08a' : '#5cc070';
+            ctx.fillRect(b.x, b.y, b.w, b.h);
+            // down-arrow glyph
+            ctx.fillStyle = '#140c1c';
+            ctx.fillRect(b.x + 7, b.y + 3, 2, 6);
+            for (let k = 0; k < 3; k++) ctx.fillRect(b.x + 5 + k, b.y + 7 + k, 6 - k * 2, 1);
+            ctx.fillRect(b.x + 4, b.y + 12, 8, 1);
+            drawText(ctx, 'INSTALL APP', b.x + 16, b.y + 4, { color: '#140c1c', shadow: null });
+        }
+        if (this.toastTime > 0 && this.toastText) {
+            const w = textWidth(this.toastText) + 16;
+            ctx.fillStyle = 'rgba(14,8,20,0.9)';
+            ctx.fillRect(Math.round(VIEW_W / 2 - w / 2), 300, w, 16);
+            ctx.fillStyle = GOLD;
+            ctx.fillRect(Math.round(VIEW_W / 2 - w / 2), 300, w, 1);
+            drawText(ctx, this.toastText, VIEW_W / 2, 305, { color: TEXT, align: 'center' });
+        }
         if (!game.audioStarted && Math.floor(t * 2) % 2 === 0) {
             drawText(ctx, touch ? 'TAP FOR SOUND' : 'PRESS ANY KEY FOR SOUND', VIEW_W - 12, 12, { color: DIM, align: 'right', outline: true });
         }

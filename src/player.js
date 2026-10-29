@@ -18,6 +18,7 @@ const SLAM_STARTUP = 0.09; // hang in the air before the dive
 const SLAM_SPEED = 620;     // dive speed (px/s)
 export const SLAM_DAMAGE = 24;
 const RECOVER_TIME = 0.34; // follow-through after the last attack before returning to idle
+const CAST_TIME = 0.5;     // foxfire cast glow: rune under her feet, blue aura and a bright flash
 
 const COMBO = [
     { damage: 14, lunge: 70, duration: 0.22, frames: [0], reach: 34, shake: 1 },
@@ -87,6 +88,7 @@ export class Player {
         this.regenDelay = 4;    // seconds without being hit before regen starts
         this.sinceHit = 0;
         this.lastDamage = 0;
+        this.castTimer = 0;
         this.minX = 10; // left wall; lowered while she walks in from off-screen
     }
 
@@ -166,6 +168,14 @@ export class Player {
         this.dropThrough = Math.max(0, this.dropThrough - dt);
         this.mana = Math.min(this.maxMana, this.mana + 4 * dt);
         this.sinceHit += dt;
+        // foxfire cast: blue sparks spiral up around her while the glow lasts
+        if (this.castTimer > 0) {
+            this.castTimer = Math.max(0, this.castTimer - dt);
+            const a = this.castTimer * 26;
+            for (const side of [0, Math.PI]) {
+                fx.embers(this.x + Math.cos(a + side) * 14, this.y - 8 - (1 - this.castTimer / CAST_TIME) * 40, 1, ['#9ee7ff', '#38bdf8', '#ffffff'], 2);
+            }
+        }
         if (this.regenerating) this.health = Math.min(this.maxHealth, this.health + this.regen * dt);
 
         if (input.jump) this.jumpBuffer = 0.12;
@@ -269,6 +279,9 @@ export class Player {
                 this.startAttack();
             } else if (input.skill && this.mana >= 25) {
                 this.mana -= 25;
+                this.castTimer = CAST_TIME;
+                fx.ring(this.x, this.y - 24, '#9ee7ff', 26, 0.3);
+                fx.ring(this.x, this.y - 2, '#38bdf8', 18, 0.35);
                 audio.playFoxfire();
                 for (let i = -1; i <= 1; i++) {
                     const ang = (this.facing > 0 ? 0 : Math.PI) + i * 0.45;
@@ -519,6 +532,9 @@ export class Player {
         // Hit flicker (not once dead: invuln stops counting down then, which would hide her for good)
         if (!this.dead && this.invuln > 0 && this.dashTimer <= 0 && Math.floor(this.invuln * 20) % 2 === 0) return;
 
+        const cast = this.castTimer / CAST_TIME; // 1 just cast -> 0 faded
+        if (cast > 0) this.renderCastBack(ctx, cast);
+
         ctx.save();
         ctx.translate(Math.round(this.x), Math.round(this.y));
         ctx.scale(this.facing, 1);
@@ -534,6 +550,14 @@ export class Player {
             ctx.translate(0, 22);
         }
         ctx.drawImage(f.img, f.sx, 0, FW, FH, -f.ax, -AY, FW, FH);
+        if (cast > 0) {
+            // brief foxfire flash: the sprite drawn again additively, fading out
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = 0.55 * cast * cast;
+            ctx.drawImage(f.img, f.sx, 0, FW, FH, -f.ax, -AY, FW, FH);
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
         if (CHARACTER.slashFx && this.state === 'attack') this.renderSlash(ctx);
         ctx.restore();
         if (this.state === 'slam') this.renderSlamFx(ctx);
@@ -544,6 +568,31 @@ export class Player {
             ctx.fillRect(x - 12, y - 50, 2, 2);
             ctx.fillRect(x + 11, y - 30, 2, 2);
             ctx.fillRect(x - 9, y - 14, 2, 2);
+        }
+    }
+
+    // Behind her while casting foxfire: a soft blue aura and a spinning rune circle at her feet
+    renderCastBack(ctx, cast) {
+        const x = Math.round(this.x);
+        const y = Math.round(this.y);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (const [r, a] of [[26, 0.08], [18, 0.1], [11, 0.12]]) {
+            ctx.fillStyle = `rgba(56,189,248,${(a * cast).toFixed(3)})`;
+            for (let dy = -r; dy < r; dy += 2) {
+                const half = Math.round(Math.sqrt(r * r - (dy + 1) * (dy + 1)) * 0.75);
+                ctx.fillRect(x - half, y - 24 + dy, half * 2, 2);
+            }
+        }
+        ctx.restore();
+        // rune: a flat ellipse of dots turning under her feet, shrinking as the glow fades
+        const rx = Math.round(10 + 8 * cast);
+        const spin = this.castTimer * 10;
+        ctx.fillStyle = cast > 0.5 ? '#e0fbff' : '#38bdf8';
+        for (let i = 0; i < 16; i++) {
+            if (i % 4 === 3) continue; // gaps make it read as turning
+            const a = spin + (i / 16) * Math.PI * 2;
+            ctx.fillRect(Math.round(x + Math.cos(a) * rx), Math.round(y - 1 + Math.sin(a) * 3), 2, 1);
         }
     }
 

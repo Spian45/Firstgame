@@ -250,6 +250,13 @@ export class HUD {
         const hp = p.health / p.maxHealth;
         if (this.hpTrail > hp) this.hpTrail = Math.max(hp, this.hpTrail - dt * 0.4);
         else this.hpTrail = hp;
+        // mana spent on foxfire: remember how much, so the bar can flash the spent chunk
+        if (this.lastMana !== undefined && p.mana < this.lastMana - 10) {
+            this.manaFlash = 0.4;
+            this.manaSpentFrom = this.lastMana / p.maxMana;
+        }
+        this.lastMana = p.mana;
+        this.manaFlash = Math.max(0, (this.manaFlash || 0) - dt);
         if (game.combo !== this.lastCombo && game.combo > 1) this.comboPop = 0.15;
         this.lastCombo = game.combo;
         this.comboPop = Math.max(0, this.comboPop - dt);
@@ -373,6 +380,13 @@ export class HUD {
         sprite(ctx, flick ? FLAME_A : FLAME_B, x + 6, y + 25, { X: C.mp, h: C.mpLight, c: '#ffffff', o: C.ink });
         const mw = bw - 30;
         fancyBar(ctx, bx, y + 27, mw, 5, p.mana / p.maxMana, 0, [C.mpLight, C.mp, C.mpDark], 4, t * 1.3);
+        if (this.manaFlash > 0) {
+            // the chunk just spent flashes white-blue and fades
+            const from = Math.round(mw * (p.mana / p.maxMana));
+            const to = Math.round(mw * this.manaSpentFrom);
+            ctx.fillStyle = `rgba(224,251,255,${(this.manaFlash / 0.4).toFixed(2)})`;
+            ctx.fillRect(bx + from, y + 27, Math.max(0, to - from), 5);
+        }
 
         // foxfire charges (25 mana each) as little flames; ready ones flicker
         const charges = Math.floor(p.mana / 25);
