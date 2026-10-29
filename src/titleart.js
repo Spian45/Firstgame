@@ -118,9 +118,12 @@ export class TitleArt {
         this.stars = Array.from({ length: 110 }, () => ({
             x: Math.floor(r() * W), y: Math.floor(r() * 150), ph: r() * 6.28, sp: 0.6 + r() * 2, big: r() < 0.08
         })).filter(s => Math.hypot(s.x - MOON.x, s.y - MOON.y) > MOON.r + 8);
+        // sparkles on the water, kept inside the lake's oval (with a margin from the shore)
         this.glints = Array.from({ length: 34 }, () => {
             const y = 266 + Math.floor(r() * 26);
-            return { x: 150 + Math.floor(r() * 290), y, len: 2 + Math.floor(r() * 4), ph: r() * 6.28, sp: 1 + r() * 2 };
+            const half = 170 * Math.sqrt(Math.max(0, 1 - ((y - 280) / 19) ** 2)) - 8;
+            const len = 2 + Math.floor(r() * 4);
+            return { x: Math.round(290 - half + r() * Math.max(0, 2 * half - len)), y, len, ph: r() * 6.28, sp: 1 + r() * 2 };
         });
         this.wisps = Array.from({ length: 16 }, () => ({
             x: r() * W, y: 190 + r() * 130, ph: r() * 6.28, sp: 0.4 + r() * 0.6
@@ -336,7 +339,10 @@ export class TitleArt {
             px(ctx, x, y, 1, 1, '#1a0e28');
         }
 
-        // Mirror lake reflecting the sunset
+        // Mirror lake reflecting the sunset. The far shore follows the lake's curve: each row's newly
+        // exposed edge gets a dark bank pixel with a thin bright line of reflected sky just under it.
+        let prevL = Infinity;
+        let prevR = -Infinity;
         for (let y = 262; y < 299; y++) {
             const e = 1 - ((y - 280) / 19) ** 2;
             if (e <= 0) continue;
@@ -345,13 +351,18 @@ export class TitleArt {
             const right = Math.round(290 + 180 * Math.sqrt(e)) - wob;
             for (let x = left; x <= right; x++) {
                 const mirrorY = 215 - (y - 262) * 3;
-                px(ctx, x, y, 1, 1, ramp(SKY, skyF(x, mirrorY) - 0.1 - (y - 262) / 120, x, y));
+                const shore = x < prevL || x > prevR; // nothing of the lake above this pixel
+                const under = x === prevL || x === prevR || (y === 263 && x > left && x < right);
+                let c = ramp(SKY, skyF(x, mirrorY) - 0.1 - (y - 262) / 120, x, y);
+                if (shore) c = '#1a0e28';
+                else if (under && (x * 7 + y) % 3) c = '#f6c48a';
+                px(ctx, x, y, 1, 1, c);
             }
             px(ctx, left, y, 1, 1, '#1a0e28');
             px(ctx, right, y, 1, 1, '#1a0e28');
+            prevL = Math.min(prevL, left);
+            prevR = Math.max(prevR, right);
         }
-        px(ctx, 120, 262, 340, 1, '#1a0e28');
-        for (let x = 150; x < 430; x += 3 + Math.floor(r() * 9)) px(ctx, x, 263, 1 + Math.floor(r() * 3), 1, '#f6c48a');
 
         // Near woods: tall pines framing the left (behind the menu) and a stand on the right
         const near = ridge(r, 304, 5, 0.5);

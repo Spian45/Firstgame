@@ -84,6 +84,9 @@ export async function loadAll(onProgress) {
     await Promise.all(sheetEntries.map(async ([key, def]) => {
         const img = await loadImage(def.src);
         character[key] = img ? shrinkSheet(img, CHARACTER.scale) : null;
+        // the strip's width decides the frame count, so a sheet re-exported from Aseprite with
+        // more or fewer frames works without touching character.js
+        if (img) def.frames = Math.max(1, Math.round(img.width / CHARACTER.frameW));
         tick();
     }));
 

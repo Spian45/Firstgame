@@ -16,6 +16,21 @@ const PINK = '#ff3df0';
 // Newest version first. Each change is [tag, text]: tag is NEW, CHANGED or FIXED (keep text under ~48 characters)
 const CHANGELOG = [
     {
+        version: 'V0.21',
+        name: 'MOONLIGHT UPDATE',
+        date: '29 OCT 2026',
+        changes: [
+            ['NEW', 'BIGGER PHONE CONTROLS WITH A FLOATING JOYSTICK'],
+            ['NEW', 'PHONES GO FULLSCREEN WHEN A FIGHT STARTS'],
+            ['NEW', 'INSTALL THE GAME AS AN APP ON PHONES'],
+            ['NEW', 'CROWN APP ICON'],
+            ['NEW', 'FOXFIRE CAST GLOW AND RUNE AROUND REN'],
+            ['NEW', 'TOUCH BUTTON SIZE AND FULLSCREEN SETTINGS'],
+            ['CHANGED', 'PERFECT DODGE BUZZES ON PHONES - NO POPUP'],
+            ['FIXED', 'TITLE SCREEN CRASH ON SOME FIRST FRAMES']
+        ]
+    },
+    {
         version: 'V0.2',
         name: 'TWILIGHT UPDATE',
         date: '28 OCT 2026',
@@ -47,10 +62,6 @@ const CHANGELOG = [
             ['NEW', 'DEBUG MODE SWITCH ON THE MAIN MENU'],
             ['CHANGED', 'F3 HIDES THE DEBUG PANEL - CHEATS STAY ON'],
             ['NEW', 'SETTINGS IN THE PAUSE MENU'],
-            ['CHANGED', 'BIGGER PHONE CONTROLS WITH A FLOATING JOYSTICK'],
-            ['NEW', 'PHONES GO FULLSCREEN WHEN A FIGHT STARTS'],
-            ['NEW', 'INSTALL THE GAME AS AN APP ON PHONES'],
-            ['NEW', 'FOXFIRE CAST GLOW AND RUNE AROUND REN'],
             ['FIXED', 'NO STRAY SPIKES HANGING UNDER PLATFORMS'],
             ['CHANGED', 'BOSS MUSIC STARTS WHEN THE BOSS ROARS'],
             ['CHANGED', 'PAUSE MENU REDESIGN WITH STATS AND TIPS'],

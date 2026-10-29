@@ -1,0 +1,20 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Export Aseprite sprites",
+            "detail": "art/ren/*.aseprite -> assets/sprites/ren_pixel/*.png",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/aseprite/export.ps1",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Make missing .aseprite files",
+            "detail": "one .aseprite in art/ren for each sprite sheet that doesn't have one yet",
+            "type": "shell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/aseprite/make_sources.ps1",
+            "problemMatcher": []
+        }
+    ]
+}
